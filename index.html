@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Hello World — Penta Putra Purnomo</title>
+<style>
+  :root{
+    --gold:#f6e3b4;
+    --warm:#ffd27a;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;overflow:hidden;background:#020204;}
+  body{
+    font-family:"Segoe UI",system-ui,-apple-system,sans-serif;
+    color:#fff;
+    -webkit-user-select:none;user-select:none;
+    touch-action:none;
+    cursor:default;
+  }
+
+  /* Full-screen simulation canvas (rope, bulb, dust, glow) */
+  #stage{position:fixed;inset:0;display:block;z-index:1;}
+
+  /* Soft room illumination overlay driven by JS */
+  #roomLight{
+    position:fixed;inset:0;z-index:2;pointer-events:none;opacity:0;
+    background:radial-gradient(60% 55% at 50% 22%,
+        rgba(255,224,170,.28) 0%,
+        rgba(255,205,130,.12) 35%,
+        rgba(10,8,6,0) 70%);
+    mix-blend-mode:screen;transition:opacity .1s linear;
+  }
+
+  /* Cinematic vignette */
+  #vignette{
+    position:fixed;inset:0;z-index:3;pointer-events:none;
+    background:radial-gradient(120% 90% at 50% 40%,rgba(0,0,0,0) 45%,rgba(0,0,0,.85) 100%);
+  }
+
+  /* ---------- The luxury reveal ---------- */
+  #reveal{
+    position:fixed;inset:0;z-index:4;display:flex;
+    align-items:center;justify-content:center;pointer-events:none;
+    padding:0 6vw;text-align:center;
+  }
+  #revealInner{
+    display:flex;flex-direction:column;align-items:center;
+    transform:translateY(11vh);   /* sit clear of the hanging cord */
+  }
+  #hello{
+    display:flex;flex-wrap:wrap;justify-content:center;gap:.05em .28em;
+    font-weight:800;
+    font-size:clamp(2.6rem,11vw,8.5rem);
+    letter-spacing:.06em;
+    line-height:.98;
+    filter:drop-shadow(0 0 24px rgba(255,205,120,.55))
+           drop-shadow(0 6px 30px rgba(0,0,0,.6));
+  }
+  /* gradient must live on each letter — background is not inherited by the spans */
+  #hello .ltr{
+    display:inline-block;opacity:0;will-change:transform,opacity,filter;
+    background:linear-gradient(180deg,#fff 0%,#ffe9bf 45%,#e9b665 100%);
+    -webkit-background-clip:text;background-clip:text;
+    -webkit-text-fill-color:transparent;color:transparent;
+  }
+  #hello .word{display:inline-flex;} /* keep each word intact; wrap only at spaces */
+
+  #credit{
+    margin-top:clamp(1.1rem,3.2vh,2.4rem);
+    opacity:0;
+    font-size:clamp(.62rem,1.7vw,1.05rem);
+    font-weight:300;
+    letter-spacing:.62em;
+    text-indent:.62em;
+    text-transform:uppercase;
+    color:#f2ddad;
+    text-shadow:0 0 18px rgba(255,205,120,.45);
+  }
+  #creditLine{
+    margin-top:1.1rem;opacity:0;height:1px;width:0;
+    background:linear-gradient(90deg,transparent,rgba(246,227,180,.8),transparent);
+  }
+
+  /* Hint to pull the cord */
+  #hint{
+    position:fixed;z-index:4;left:50%;transform:translateX(-50%);
+    bottom:8vh;text-align:center;pointer-events:none;
+    color:rgba(230,220,205,.55);font-weight:300;letter-spacing:.32em;
+    text-transform:uppercase;font-size:.62rem;
+    transition:opacity .6s ease;
+  }
+  #hint .chev{
+    display:block;margin:0 auto 10px;width:16px;height:16px;
+    border-right:2px solid rgba(230,220,205,.5);
+    border-bottom:2px solid rgba(230,220,205,.5);
+    transform:rotate(45deg);
+    animation:bob 1.6s ease-in-out infinite;
+  }
+  @keyframes bob{0%,100%{transform:rotate(45deg) translate(0,0);opacity:.35}
+    50%{transform:rotate(45deg) translate(4px,4px);opacity:.9}}
+
+  /* Replay note after reveal */
+  #replay{
+    position:fixed;z-index:4;left:50%;bottom:3.4vh;transform:translateX(-50%);
+    color:rgba(230,220,205,.4);font-weight:300;letter-spacing:.28em;
+    text-transform:uppercase;font-size:.55rem;pointer-events:none;
+    opacity:0;transition:opacity .8s ease;
+  }
+
+  /* CSS fallback reveal (only used if GSAP fails to load) */
+  .noGsap #hello .ltr{animation:pop .9s cubic-bezier(.16,1,.3,1) forwards;}
+  .noGsap #hello .ltr{opacity:1;}
+  @keyframes pop{from{opacity:0;transform:translateY(50px) scale(.7);filter:blur(12px)}
+    to{opacity:1;transform:none;filter:blur(0)}}
+  .noGsap #credit{animation:fadeUp 1.2s ease .7s forwards;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <div id="roomLight"></div>
+  <div id="vignette"></div>
+
+  <div id="reveal">
+    <div id="revealInner">
+      <h1 id="hello" aria-label="HI SEMUA"></h1>
+      <div id="creditLine"></div>
+      <p id="credit">Penta Putra Purnomo, S.Pd., Gr.</p>
+    </div>
+  </div>
+
+  <div id="hint"><span class="chev"></span>Tarik &amp; lepas tali</div>
+  <div id="replay">Tarik lagi untuk mengulang</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script>
+  (function(){
+    "use strict";
+
+    /* =========================================================
+       CANVAS SETUP
+    ========================================================= */
+    const canvas = document.getElementById('stage');
+    const ctx = canvas.getContext('2d');
+    let W = 0, H = 0, DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+    // Scene geometry (recomputed on resize)
+    let anchorX, anchorY, bulbR, cordStartY, restLen, restHandleY;
+
+    // Rope state
+    let points = [];
+    const SEGMENTS = 14;
+    const GRAVITY = 0.5;
+    const FRICTION = 0.95;    // bouncy: oscillates a few times then settles (no endless swing)
+    const STIFFNESS = 0.35;   // <1 => elastic; snaps back to rest length without sagging when idle
+    const ITER = 4;
+    const MAX_REACH_F = 2.6;  // let the cord stretch well past rest length, like a rubber band
+
+    // Interaction / lifecycle
+    let dragging = false;
+    let pointerId = null;
+    let mouse = {x:0, y:0};
+    let lit = false;
+    let started = false;      // has audio context been unlocked
+    let hintVisible = true;
+
+    // Illumination easing
+    let glow = 0;             // 0..1 current
+    let glowTarget = 0;
+
+    // Dust particles
+    let dust = [];
+
+    function resize(){
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = W * DPR; canvas.height = H * DPR;
+      canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+      ctx.setTransform(DPR,0,0,DPR,0,0);
+
+      anchorX = W * 0.5;
+      anchorY = H * 0.17;
+      bulbR   = Math.max(24, Math.min(56, Math.min(W,H) * 0.05));
+      cordStartY = anchorY + bulbR;
+      restLen = Math.max(90, H * 0.13);
+      restHandleY = cordStartY + restLen;
+
+      buildRope();
+      buildDust();
+    }
+
+    function buildRope(){
+      points = [];
+      const seg = restLen / SEGMENTS;
+      for(let i=0;i<=SEGMENTS;i++){
+        const y = cordStartY + seg*i;
+        points.push({x:anchorX, y:y, px:anchorX, py:y, pinned:i===0});
+      }
+    }
+
+    function buildDust(){
+      dust = [];
+      const count = Math.round((W*H)/16000);
+      for(let i=0;i<count;i++){
+        dust.push(newDust(true));
+      }
+    }
+    function newDust(anywhere){
+      return {
+        x: Math.random()*W,
+        y: anywhere ? Math.random()*H : H + Math.random()*40,
+        r: Math.random()*1.8 + 0.3,
+        vx: (Math.random()-0.5)*0.15,
+        vy: -(Math.random()*0.25 + 0.05),
+        phase: Math.random()*Math.PI*2,
+        sway: Math.random()*0.5 + 0.2,
+        base: Math.random()*0.5 + 0.15
+      };
+    }
+
+    /* =========================================================
+       ROPE PHYSICS (Verlet + elastic constraints)
+    ========================================================= */
+    const handle = () => points[points.length-1];
+
+    function simulate(){
+      for(let i=0;i<points.length;i++){
+        const p = points[i];
+        if(p.pinned) { p.x = anchorX; p.y = cordStartY; p.px=p.x; p.py=p.y; continue; }
+        if(dragging && i===points.length-1){
+          // handle follows the mouse. Store this frame's position as "previous" first,
+          // so on release the velocity equals the real per-frame mouse movement
+          // (a gentle drag releases gently, a quick flick releases fast) — not a huge jump.
+          p.px = p.x; p.py = p.y;
+          p.x = mouse.x; p.y = mouse.y;
+          continue;
+        }
+        const vx = (p.x - p.px) * FRICTION;
+        const vy = (p.y - p.py) * FRICTION;
+        p.px = p.x; p.py = p.y;
+        p.x += vx;
+        p.y += vy + GRAVITY;
+      }
+      const seg = restLen / SEGMENTS;
+      for(let k=0;k<ITER;k++){
+        for(let i=0;i<points.length-1;i++){
+          const a = points[i], b = points[i+1];
+          let dx = b.x - a.x, dy = b.y - a.y;
+          let d = Math.hypot(dx,dy) || 0.0001;
+          const diff = ((d - seg) / d) * STIFFNESS;
+          const ox = dx*diff, oy = dy*diff;
+          const aFixed = a.pinned;
+          const bFixed = (dragging && i+1===points.length-1);
+          if(aFixed && bFixed){ /* nothing */ }
+          else if(aFixed){ b.x -= ox; b.y -= oy; }
+          else if(bFixed){ a.x += ox; a.y += oy; }
+          else { a.x += ox*0.5; a.y += oy*0.5; b.x -= ox*0.5; b.y -= oy*0.5; }
+        }
+        points[0].x = anchorX; points[0].y = cordStartY;
+      }
+    }
+
+    /* =========================================================
+       DRAW
+    ========================================================= */
+    function draw(){
+      ctx.clearRect(0,0,W,H);
+      // deep background gradient
+      const bg = ctx.createRadialGradient(anchorX,anchorY,10,anchorX,anchorY,Math.max(W,H));
+      const g = glow;
+      bg.addColorStop(0, `rgba(${18+40*g},${16+34*g},${20+22*g},1)`);
+      bg.addColorStop(1, `rgba(2,2,4,1)`);
+      ctx.fillStyle = bg;
+      ctx.fillRect(0,0,W,H);
+
+      drawDust();
+
+      // big warm light pool
+      if(g > 0.01){
+        const pool = ctx.createRadialGradient(anchorX,anchorY,0,anchorX,anchorY,Math.min(W,H)*1.0);
+        pool.addColorStop(0, `rgba(255,222,160,${0.22*g})`);
+        pool.addColorStop(0.4, `rgba(255,196,120,${0.08*g})`);
+        pool.addColorStop(1, `rgba(0,0,0,0)`);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = pool; ctx.fillRect(0,0,W,H);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+
+      drawWire();
+      drawCord();
+      drawBulb();
+    }
+
+    function drawDust(){
+      for(const d of dust){
+        d.phase += 0.01;
+        d.x += d.vx + Math.sin(d.phase)*d.sway*0.3;
+        d.y += d.vy;
+        if(d.y < -10 || d.x < -10 || d.x > W+10){ Object.assign(d, newDust(false)); }
+        // dust brightens near the lit bulb
+        const dist = Math.hypot(d.x-anchorX, d.y-anchorY);
+        const near = Math.max(0, 1 - dist/(Math.min(W,H)*0.75));
+        const a = d.base*0.12 + glow*near*0.9;
+        if(a <= 0.01) continue;
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.r, 0, Math.PI*2);
+        ctx.fillStyle = `rgba(255,240,210,${a})`;
+        ctx.fill();
+      }
+    }
+
+    function drawWire(){
+      // hanging wire from ceiling to top of bulb
+      ctx.beginPath();
+      ctx.moveTo(anchorX, -5);
+      ctx.lineTo(anchorX, anchorY - bulbR*0.7);
+      ctx.strokeStyle = `rgba(${120+80*glow},${110+70*glow},${105+55*glow},0.85)`;
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+      // ceiling mount
+      ctx.fillStyle = 'rgba(30,30,34,0.95)';
+      ctx.fillRect(anchorX-16,-6,32,10);
+    }
+
+    function drawCord(){
+      // the pull cord
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for(let i=1;i<points.length;i++){
+        const p = points[i], prev = points[i-1];
+        const mx = (p.x+prev.x)/2, my=(p.y+prev.y)/2;
+        ctx.quadraticCurveTo(prev.x, prev.y, mx, my);
+      }
+      const last = handle();
+      ctx.lineTo(last.x,last.y);
+      ctx.lineCap='round';
+      ctx.lineWidth = 2.6;
+      ctx.strokeStyle = `rgba(${150+70*glow},${140+60*glow},${125+45*glow},0.92)`;
+      ctx.stroke();
+
+      // handle knob
+      const kr = 9;
+      const kg = ctx.createRadialGradient(last.x-2,last.y-3,1,last.x,last.y,kr);
+      kg.addColorStop(0, `rgba(255,${230},${190},1)`);
+      kg.addColorStop(1, `rgba(${120+40*glow},${100+30*glow},${70+20*glow},1)`);
+      ctx.beginPath();
+      ctx.arc(last.x,last.y,kr,0,Math.PI*2);
+      ctx.fillStyle = kg; ctx.fill();
+      ctx.lineWidth=1.4;
+      ctx.strokeStyle='rgba(0,0,0,0.35)';
+      ctx.stroke();
+    }
+
+    function drawBulb(){
+      const cx=anchorX, cy=anchorY, r=bulbR;
+
+      // halo when lit
+      if(glow>0.01){
+        const halo = ctx.createRadialGradient(cx,cy,r*0.2,cx,cy,r*7);
+        halo.addColorStop(0, `rgba(255,238,190,${0.85*glow})`);
+        halo.addColorStop(0.25, `rgba(255,210,140,${0.30*glow})`);
+        halo.addColorStop(1, `rgba(255,180,90,0)`);
+        ctx.globalCompositeOperation='lighter';
+        ctx.beginPath(); ctx.arc(cx,cy,r*7,0,Math.PI*2);
+        ctx.fillStyle=halo; ctx.fill();
+        ctx.globalCompositeOperation='source-over';
+      }
+
+      // metal cap on top
+      ctx.beginPath();
+      ctx.moveTo(cx-r*0.42, cy-r*0.86);
+      ctx.lineTo(cx+r*0.42, cy-r*0.86);
+      ctx.lineTo(cx+r*0.32, cy-r*1.25);
+      ctx.lineTo(cx-r*0.32, cy-r*1.25);
+      ctx.closePath();
+      ctx.fillStyle=`rgba(${70+40*glow},${66+34*glow},${64+26*glow},1)`;
+      ctx.fill();
+
+      // glass body
+      const body = ctx.createRadialGradient(cx-r*0.3,cy-r*0.35,r*0.15,cx,cy,r*1.15);
+      if(lit || glow>0.02){
+        body.addColorStop(0, `rgba(255,255,250,${0.7+0.3*glow})`);
+        body.addColorStop(0.4, `rgba(255,${225-30*(1-glow)},${170},${0.6+0.4*glow})`);
+        body.addColorStop(1, `rgba(255,${180},${110},${0.15+0.5*glow})`);
+      } else {
+        body.addColorStop(0, 'rgba(60,60,66,1)');
+        body.addColorStop(1, 'rgba(20,20,24,1)');
+      }
+      ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+      ctx.fillStyle=body; ctx.fill();
+
+      // rim
+      ctx.lineWidth=1.6;
+      ctx.strokeStyle=`rgba(255,235,190,${0.15+0.5*glow})`;
+      ctx.stroke();
+
+      // filament
+      ctx.save();
+      ctx.beginPath();
+      const fy = cy+r*0.1, fw=r*0.36;
+      ctx.moveTo(cx-fw, cy+r*0.45);
+      ctx.lineTo(cx-fw*0.5, fy);
+      ctx.lineTo(cx-fw*0.15, fy+r*0.18);
+      ctx.lineTo(cx+fw*0.15, fy);
+      ctx.lineTo(cx+fw*0.5, fy+r*0.18);
+      ctx.lineTo(cx+fw, cy+r*0.45);
+      ctx.lineWidth = 1.8 + 1.4*glow;
+      ctx.lineCap='round'; ctx.lineJoin='round';
+      ctx.strokeStyle = glow>0.02
+        ? `rgba(255,${235},${190},${0.6+0.4*glow})`
+        : 'rgba(120,110,100,0.5)';
+      if(glow>0.02){ ctx.shadowColor='rgba(255,220,150,0.9)'; ctx.shadowBlur=18*glow; }
+      ctx.stroke();
+      ctx.restore();
+
+      // specular highlight
+      ctx.beginPath();
+      ctx.arc(cx-r*0.32,cy-r*0.34,r*0.16,0,Math.PI*2);
+      ctx.fillStyle=`rgba(255,255,255,${0.35+0.35*glow})`;
+      ctx.fill();
+    }
+
+    /* =========================================================
+       MAIN LOOP
+    ========================================================= */
+    function loop(){
+      // ease glow toward target
+      glow += (glowTarget - glow) * 0.12;
+      document.getElementById('roomLight').style.opacity = glow.toFixed(3);
+      simulate();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    /* =========================================================
+       POINTER INTERACTION
+    ========================================================= */
+    function pos(e){
+      const t = (e.touches && e.touches[0]) || e;
+      return {x:t.clientX, y:t.clientY};
+    }
+    // keep the handle within a max reach from the cord start so it never stretches too far
+    function clampDrag(p){
+      const dx = p.x - anchorX, dy = p.y - cordStartY;
+      const d = Math.hypot(dx,dy);
+      const max = restLen * MAX_REACH_F;
+      if(d > max){ p.x = anchorX + dx*max/d; p.y = cordStartY + dy*max/d; }
+      return p;
+    }
+    function nearHandle(p){
+      const h = handle();
+      return Math.hypot(p.x-h.x, p.y-h.y) < 46;
+    }
+
+    function onDown(e){
+      const p = pos(e);
+      if(!nearHandle(p)) return;
+      unlockAudio();
+      dragging = true;
+      mouse = clampDrag(p);
+      canvas.style.cursor='grabbing';
+      hideHint();
+      e.preventDefault();
+    }
+    function onMove(e){
+      const p = pos(e);
+      if(!dragging){
+        canvas.style.cursor = nearHandle(p) ? 'grab' : 'default';
+        return;
+      }
+      mouse = clampDrag(p);
+      e.preventDefault();
+    }
+    let toggleLock = false;      // prevents rapid pulls from stacking half-finished animations
+    let pendingToggle = null;
+    function onUp(e){
+      if(!dragging) return;
+      dragging = false;
+      canvas.style.cursor='default';
+      const pulled = handle().y - restHandleY;
+      // valid pull = dragged meaningfully downward, and not already mid-toggle
+      if(pulled > restLen*0.28 && !toggleLock){
+        toggleLock = true;
+        playClick(lit);          // mechanical clack at the moment of release
+        const turningOn = !lit;
+        clearTimeout(pendingToggle);
+        pendingToggle = setTimeout(()=>toggle(turningOn), 90);
+      }
+      e.preventDefault();
+    }
+
+    function toggle(on){
+      lit = on;
+      glowTarget = on ? 1 : 0;
+      if(on){ revealText(); playReveal(); showReplay(); }
+      else  { hideText(); }
+      // release the lock only after the transition has settled, so a fast
+      // second pull can't interrupt an in-flight reveal/hide and leave stuck text
+      setTimeout(()=>{ toggleLock = false; }, on ? 700 : 550);
+    }
+
+    /* =========================================================
+       TEXT REVEAL (GSAP with CSS fallback)
+    ========================================================= */
+    function buildLetters(){
+      const el = document.getElementById('hello');
+      el.innerHTML = '';
+      'HI SEMUA'.split(' ').forEach(w=>{
+        const word = document.createElement('span');
+        word.className = 'word';
+        for(const ch of w){
+          const span = document.createElement('span');
+          span.className = 'ltr';
+          span.textContent = ch;
+          word.appendChild(span);
+        }
+        el.appendChild(word);
+      });
+    }
+
+    const hasGSAP = typeof window.gsap !== 'undefined';
+    if(!hasGSAP) document.body.classList.add('noGsap');
+
+    function revealText(){
+      const letters = document.querySelectorAll('#hello .ltr');
+      const credit = document.getElementById('credit');
+      const line = document.getElementById('creditLine');
+      if(hasGSAP){
+        // kill any in-flight tween on every target first so nothing is left half-done
+        gsap.killTweensOf(letters); gsap.killTweensOf([credit,line]);
+        gsap.set(letters,{opacity:0,y:70,scale:.55,filter:'blur(16px)',rotateX:-40});
+        gsap.set([credit,line],{opacity:0});
+        gsap.to(letters,{opacity:1,y:0,scale:1,rotateX:0,filter:'blur(0px)',
+          duration:1.15,ease:'power4.out',stagger:0.055,delay:0.05});
+        gsap.to(line,{opacity:1,width:'min(320px,60vw)',duration:1.1,delay:0.85,ease:'power2.out'});
+        gsap.fromTo(credit,{opacity:0,y:22,letterSpacing:'1.2em'},
+          {opacity:1,y:0,letterSpacing:'.62em',duration:1.6,delay:1.0,ease:'power2.out'});
+      } else {
+        // CSS fallback: re-trigger animations
+        letters.forEach((l,i)=>{ l.style.animation='none'; void l.offsetWidth;
+          l.style.animation=`pop .9s cubic-bezier(.16,1,.3,1) ${i*0.05}s forwards`; });
+        credit.style.animation='none'; void credit.offsetWidth;
+        credit.style.animation='fadeUp 1.2s ease .7s forwards';
+        line.style.opacity=1; line.style.width='min(320px,60vw)';
+        line.style.transition='width 1s ease .8s';
+      }
+    }
+    function hideText(){
+      const letters = document.querySelectorAll('#hello .ltr');
+      const credit = document.getElementById('credit');
+      const line = document.getElementById('creditLine');
+      if(hasGSAP){
+        gsap.killTweensOf(letters); gsap.killTweensOf([credit,line]);
+        gsap.to(letters,{opacity:0,y:-34,scale:.8,filter:'blur(12px)',
+          duration:.5,stagger:0.02,ease:'power2.in',
+          onComplete:()=>gsap.set(letters,{opacity:0})}); // guarantee fully hidden
+        gsap.to([credit,line],{opacity:0,duration:.4});
+      } else {
+        letters.forEach(l=>{l.style.animation='none';l.style.opacity=0;});
+        credit.style.animation='none';credit.style.opacity=0;
+        line.style.width=0;line.style.opacity=0;
+      }
+    }
+
+    function hideHint(){
+      if(!hintVisible) return; hintVisible=false;
+      document.getElementById('hint').style.opacity=0;
+    }
+    let replayShown=false;
+    function showReplay(){
+      if(replayShown) return; replayShown=true;
+      setTimeout(()=>{ document.getElementById('replay').style.opacity=1; },2600);
+    }
+
+    /* =========================================================
+       WEB AUDIO — synthesized SFX (no external files)
+    ========================================================= */
+    let actx=null, reverbBuf=null;
+    function unlockAudio(){
+      if(started) return; started=true;
+      try{
+        actx = new (window.AudioContext||window.webkitAudioContext)();
+        reverbBuf = makeImpulse(3.2, 2.4);
+      }catch(err){ console.warn('Audio unavailable', err); }
+    }
+    function makeImpulse(dur, decay){
+      const rate=actx.sampleRate, len=Math.floor(rate*dur);
+      const buf=actx.createBuffer(2,len,rate);
+      for(let ch=0;ch<2;ch++){
+        const d=buf.getChannelData(ch);
+        for(let i=0;i<len;i++){
+          d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay);
+        }
+      }
+      return buf;
+    }
+
+    // (a) solid mechanical click
+    function playClick(soft){
+      if(!actx) return;
+      const now=actx.currentTime;
+      const amp = soft ? 0.35 : 0.6;
+      // low "thunk"
+      const o=actx.createOscillator(), g=actx.createGain();
+      o.type='sine';
+      o.frequency.setValueAtTime(200,now);
+      o.frequency.exponentialRampToValueAtTime(55,now+0.06);
+      g.gain.setValueAtTime(0.0001,now);
+      g.gain.exponentialRampToValueAtTime(amp,now+0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001,now+0.13);
+      o.connect(g).connect(actx.destination);
+      o.start(now); o.stop(now+0.15);
+      // high transient noise (the "clack")
+      const n=actx.createBufferSource();
+      const nb=actx.createBuffer(1,Math.floor(actx.sampleRate*0.05),actx.sampleRate);
+      const nd=nb.getChannelData(0);
+      for(let i=0;i<nd.length;i++) nd[i]=(Math.random()*2-1)*Math.pow(1-i/nd.length,3);
+      n.buffer=nb;
+      const bp=actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2600; bp.Q.value=1.2;
+      const ng=actx.createGain(); ng.gain.value=amp*0.9;
+      n.connect(bp).connect(ng).connect(actx.destination);
+      n.start(now); n.stop(now+0.05);
+    }
+
+    // (b) cinematic reveal — lush pad + shimmer + sub swoosh through reverb
+    function playReveal(){
+      if(!actx) return;
+      const now=actx.currentTime;
+
+      const master=actx.createGain();
+      master.gain.value=1;
+      master.connect(actx.destination);
+
+      // reverb send
+      const conv=actx.createConvolver(); conv.buffer=reverbBuf;
+      const wet=actx.createGain(); wet.gain.value=0.55;
+      master.connect(conv); conv.connect(wet); wet.connect(actx.destination);
+
+      // warm major add9 chord (C E G B D)
+      const chord=[261.63,329.63,392.00,493.88,587.33];
+      chord.forEach((f,i)=>{
+        const o=actx.createOscillator(), g=actx.createGain();
+        o.type = i<3 ? 'sawtooth' : 'triangle';
+        o.frequency.value=f;
+        o.detune.value=(i%2? 5 : -5);
+        const lp=actx.createBiquadFilter(); lp.type='lowpass';
+        lp.frequency.setValueAtTime(400,now);
+        lp.frequency.linearRampToValueAtTime(3200,now+1.6);
+        g.gain.setValueAtTime(0.0001,now);
+        g.gain.linearRampToValueAtTime(0.11,now+1.1);
+        g.gain.linearRampToValueAtTime(0.07,now+2.6);
+        g.gain.linearRampToValueAtTime(0.0001,now+4.6);
+        o.connect(lp).connect(g).connect(master);
+        o.start(now); o.stop(now+4.7);
+      });
+
+      // angelic shimmer — high bell partials staggered
+      const bells=[1046.5,1318.5,1568,2093];
+      bells.forEach((f,i)=>{
+        const t=now+0.25+i*0.14;
+        const o=actx.createOscillator(), g=actx.createGain();
+        o.type='sine'; o.frequency.value=f;
+        g.gain.setValueAtTime(0.0001,t);
+        g.gain.exponentialRampToValueAtTime(0.06,t+0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001,t+2.2);
+        o.connect(g).connect(master);
+        o.start(t); o.stop(t+2.3);
+      });
+
+      // deep sub swoosh rising
+      const sub=actx.createOscillator(), sg=actx.createGain();
+      sub.type='sine';
+      sub.frequency.setValueAtTime(45,now);
+      sub.frequency.exponentialRampToValueAtTime(120,now+1.4);
+      sg.gain.setValueAtTime(0.0001,now);
+      sg.gain.linearRampToValueAtTime(0.5,now+0.8);
+      sg.gain.linearRampToValueAtTime(0.0001,now+2.4);
+      sub.connect(sg).connect(master);
+      sub.start(now); sub.stop(now+2.5);
+
+      // airy noise swell
+      const ns=actx.createBufferSource();
+      const nb=actx.createBuffer(1,Math.floor(actx.sampleRate*2),actx.sampleRate);
+      const nd=nb.getChannelData(0);
+      for(let i=0;i<nd.length;i++) nd[i]=(Math.random()*2-1);
+      ns.buffer=nb;
+      const hp=actx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=6000;
+      const ng=actx.createGain();
+      ng.gain.setValueAtTime(0.0001,now);
+      ng.gain.linearRampToValueAtTime(0.05,now+0.9);
+      ng.gain.linearRampToValueAtTime(0.0001,now+2.0);
+      ns.connect(hp).connect(ng).connect(conv);
+      ns.start(now); ns.stop(now+2.0);
+    }
+
+    /* =========================================================
+       BOOT
+    ========================================================= */
+    buildLetters();
+    resize();
+    loop();
+
+    window.addEventListener('resize', resize);
+    canvas.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    canvas.addEventListener('touchstart', onDown, {passive:false});
+    window.addEventListener('touchmove', onMove, {passive:false});
+    window.addEventListener('touchend', onUp, {passive:false});
+
+    // resume audio if browser suspends it
+    window.addEventListener('pointerdown', ()=>{ if(actx && actx.state==='suspended') actx.resume(); });
+  })();
+  </script>
+</body>
+</html>
